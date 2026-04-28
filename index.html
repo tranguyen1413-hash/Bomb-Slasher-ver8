@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Chém Bom Né Quả - Sấm Sét Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        // Firebase Setup & Logic (BẢNG XẾP HẠNG TOÀN CẦU)
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, addDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        let db, auth, user;
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCwKx_btF8EvR5Xp0sM2pi_VT6wWQdF4ec",
+            authDomain: "chem-bom-game.firebaseapp.com",
+            projectId: "chem-bom-game",
+            storageBucket: "chem-bom-game.firebasestorage.app",
+            messagingSenderId: "521625372789",
+            appId: "1:521625372789:web:d583224c097c779cab103c"
+        };
+
+        try {
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+
+            signInAnonymously(auth).catch((error) => {
+                console.error("Lỗi đăng nhập Firebase:", error);
+            });
+
+            onAuthStateChanged(auth, (u) => {
+                user = u;
+                if (user) {
+                    loadGlobalLeaderboard();
+                }
+            });
+        } catch (error) {
+            console.error("Firebase init failed:", error);
+        }
+
+        // --- Leaderboard Logic ---
+        let topScores = [];
+        window.allGlobalScores = []; // Lưu toàn bộ điểm để tính Rank
+        window.isSubmittingScore = false;
+
+        function loadGlobalLeaderboard() {
+            if (!user || !db) return;
+            const lbRef = collection(db, 'leaderboard');
+            onSnapshot(lbRef, (snapshot) => {
+                let scores = [];
+                snapshot.forEach(doc => { scores.push({ id: doc.id, ...doc.data() }); });
+                scores.sort((a, b) => b.score - a.score);
+                
+                window.allGlobalScores = scores;
+                topScores = scores.slice(0, 5); // Lấy top 5 hiển thị danh sách
+                
+                renderLeaderboard();
+                
+                // Cập nhật lại rank hiện tại nếu đang ở màn Game Over
+                if (window.updateCurrentRankDisplay && document.getElementById('gameOverScreen').classList.contains('hidden') === false) {
+                    window.updateCurrentRankDisplay();
+                }
+            }, (error) => {
+                const errorMsg = '<li class="text-gray-400 text-sm py-2">Không tải được dữ liệu</li>';
+                if(document.getElementById('leaderboardList')) document.getElementById('leaderboardList').innerHTML = errorMsg;
+                if(document.getElementById('gameOverLeaderboardList')) document.getElementById('gameOverLeaderboardList').innerHTML = errorMsg;
+            });
+        }
+
+        function renderLeaderboard() {
+            const listStart = document.getElementById('leaderboardList');
+            const listGameOver = document.getElementById('gameOverLeaderboardList');
+            
+            if (topScores.length === 0) {
+                const emptyMsg = '<li class="text-gray-400 text-sm text-center py-2">Chưa có ai chơi! Hãy là người đầu tiên.</li>';
+                if(listStart) listStart.innerHTML = emptyMsg;
+                if(listGameOver) listGameOver.innerHTML = emptyMsg;
+                return;
+            }
+            
+            const htmlStart = topScores.map((s, index) => {
+                let badge = index === 0 ? '👑' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                return `<li class="flex justify-between items-center py-2 border-b border-gray-700 last:border-0">
+                            <span class="text-gray-300 flex items-center gap-2">
+                                <span class="w-6 inline-block text-center">${badge || (index+1)}</span> 
+                                <span class="font-semibold truncate w-24 text-left">${s.name}</span>
+                            </span>
+                            <span class="text-yellow-400 font-bold">${s.score}</span>
+                        </li>`;
+            }).join('');
+
+            // Giao diện nhỏ gọn hơn cho màn hình Game Over
+            const htmlGameOver = topScores.map((s, index) => {
+                let badge = index === 0 ? '👑' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                return `<li class="flex justify-between items-center py-1.5 border-b border-gray-700 last:border-0">
+                            <span class="text-gray-300 flex items-center gap-1">
+                                <span class="w-6 inline-block text-center">${badge || (index+1)}</span> 
+                                <span class="font-semibold truncate w-24 text-left">${s.name}</span>
+                            </span>
+                            <span class="text-yellow-400 font-bold">${s.score}</span>
+                        </li>`;
+            }).join('');
+
+            if(listStart) listStart.innerHTML = htmlStart;
+            if(listGameOver) listGameOver.innerHTML = htmlGameOver;
+        }
+
+        window.submitScore = async function(name, score) {
+            if (!user || !db || isSubmittingScore || !name.trim()) return false;
+            window.isSubmittingScore = true;
+            try {
+                const lbRef = collection(db, 'leaderboard');
+                await addDoc(lbRef, {
+                    name: name.substring(0, 15),
+                    score: score,
+                    timestamp: new Date().getTime(),
+                    userId: user.uid
+                });
+                return true;
+            } catch (e) { return false; } finally { window.isSubmittingScore = false; }
+        };
+    </script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #0f172a; touch-action: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; user-select: none; }
+        #gameCanvas { display: block; width: 100%; height: 100%; box-shadow: inset 0 0 50px rgba(0,0,0,0.9); background: radial-gradient(circle at center, #1e293b 0%, #020617 100%); }
+        .ui-container { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 1.5rem; }
+        .interactive { pointer-events: auto; }
+        .btn { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); transition: all 0.1s; }
+        .btn:active { transform: scale(0.95); }
+        .btn-red { background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4); }
+        
+        #damageOverlay { position: absolute; inset: 0; background-color: rgba(239, 68, 68, 0.5); opacity: 0; transition: opacity 0.1s; pointer-events: none; }
+        .flash-damage { animation: flash 0.4s ease-out; }
+        @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+        
+        #lightningOverlay { position: absolute; inset: 0; background-color: white; opacity: 0; pointer-events: none; }
+        .flash-lightning { animation: lightningFlash 0.15s ease-out; }
+        @keyframes lightningFlash { 0% { opacity: 0.8; } 50% { opacity: 0; } 75% { opacity: 0.5; } 100% { opacity: 0; } }
+
+        /* Hiệu ứng sương mù khi bị đóng băng thời gian */
+        #freezeOverlay { position: absolute; inset: 0; background-color: rgba(186, 230, 253, 0.15); box-shadow: inset 0 0 100px rgba(186, 230, 253, 0.4); opacity: 0; transition: opacity 0.3s; pointer-events: none; backdrop-filter: saturate(0.8) hue-rotate(180deg); }
+        .active-freeze { opacity: 1 !important; }
+
+        .name-input { background: rgba(15, 23, 42, 0.8); border: 2px solid #3b82f6; color: white; padding: 0.5rem; border-radius: 0.5rem; width: 100%; text-align: center; font-size: 1rem; outline: none; }
+        .name-input:focus { border-color: #60a5fa; box-shadow: 0 0 10px rgba(96, 165, 250, 0.5); }
+        .glass-panel { background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.1); }
+        .live-indicator { display: inline-block; width: 8px; height: 8px; background-color: #10b981; border-radius: 50%; margin-right: 6px; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(96, 165, 250, 0.5); border-radius: 4px; }
+        
+        .highlight-rank { background: linear-gradient(90deg, rgba(59,130,246,0.3) 0%, rgba(30,58,138,0.1) 100%); border: 1px solid rgba(96, 165, 250, 0.5); }
+    </style>
+</head>
+<body>
+
+    <audio id="bgMusic" src="https://assets.mixkit.co/music/preview/mixkit-game-level-music-689.mp3" loop preload="auto"></audio>
+    <div id="lightningOverlay"></div>
+    <div id="damageOverlay"></div>
+    <div id="freezeOverlay"></div> <!-- Lớp sương giá -->
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="ui-container z-10" id="uiLayer">
+        <!-- HUD -->
+        <div id="hud" class="flex justify-between items-start opacity-0 transition-opacity duration-300">
+            <div>
+                <div class="text-white font-bold text-3xl drop-shadow-md">Điểm: <span id="scoreText" class="text-yellow-400">0</span></div>
+                <div class="text-gray-400 text-sm font-semibold mt-1">Kỷ lục: <span id="highScoreTextHUD" class="text-blue-300">0</span></div>
+            </div>
+            <div class="flex items-center gap-4">
+                <button id="musicToggleBtn" class="text-2xl md:text-3xl drop-shadow-md focus:outline-none hover:scale-110 transition-transform interactive">🔊</button>
+                <div class="flex gap-2" id="livesContainer"></div>
+            </div>
+        </div>
+
+        <div id="screenContainer" class="flex-1 flex items-center justify-center">
+            <!-- START SCREEN -->
+            <div id="startScreen" class="bg-gray-800 bg-opacity-95 p-6 md:p-8 rounded-2xl border-2 border-blue-500 text-center shadow-[0_0_30px_rgba(59,130,246,0.3)] max-w-md w-full mx-4 flex flex-col md:flex-row gap-6 interactive">
+                <div class="flex-1">
+                    <h1 class="text-4xl md:text-5xl font-extrabold text-white mb-1 drop-shadow-lg tracking-tight">CHÉM <span class="text-red-500">BOM</span></h1>
+                    <h2 class="text-xl md:text-2xl font-bold text-green-400 mb-4 drop-shadow-md">SẤM SÉT EDITION</h2>
+                    <div class="text-gray-300 mb-6 text-sm bg-gray-900 rounded-lg p-3 text-left">
+                        <p class="mb-1">⚡ <strong>Vuốt Ziczac</strong> để chém đứt 💣.</p>
+                        <p class="mb-1 text-red-400">❌ Cẩn thận hoa quả 🍎🍌.</p>
+                        <p class="mb-1 text-blue-300">🧊 Chém khối băng để <strong>SLOW-MO</strong>.</p>
+                        <p class="text-yellow-400">⚠️ Đừng để bom rơi quá màn hình!</p>
+                    </div>
+                    <button id="startBtn" class="btn text-white font-bold py-3 px-8 rounded-full text-xl w-full uppercase tracking-wider mb-4">Chơi Ngay</button>
+                    <div class="text-gray-400 text-sm font-semibold">Kỷ lục: <span id="highScoreTextStart" class="text-yellow-400 text-lg">0</span></div>
+                </div>
+                <div class="glass-panel p-4 rounded-xl flex-1 flex flex-col min-w-[200px] hidden md:flex">
+                    <h3 class="text-blue-400 font-bold mb-3 border-b border-blue-500/30 pb-2 flex items-center justify-center"><span class="live-indicator"></span> TOP NINJA ONLINE</h3>
+                    <ul id="leaderboardList" class="flex-1 flex flex-col justify-start text-sm overflow-y-auto"><li class="text-gray-500 italic">Đang tải...</li></ul>
+                </div>
+            </div>
+
+            <!-- GAME OVER SCREEN -->
+            <div id="gameOverScreen" class="hidden bg-gray-900 bg-opacity-95 p-5 md:p-6 rounded-2xl border-2 border-red-500 text-center shadow-[0_0_40px_rgba(239,68,68,0.4)] w-[90%] max-w-sm mx-4 transform scale-95 transition-transform duration-300 interactive flex flex-col max-h-[90vh]">
+                <div class="overflow-y-auto custom-scrollbar pr-2 flex-1 flex flex-col">
+                    <h1 class="text-3xl md:text-4xl font-extrabold text-red-500 mb-1 drop-shadow-lg uppercase">Thua Rồi!</h1>
+                    <p class="text-gray-300 text-sm md:text-base">Điểm của bạn</p>
+                    <div class="text-5xl md:text-6xl font-black text-yellow-400 mb-2 drop-shadow-lg" id="finalScore">0</div>
+                    
+                    <div id="newRecordMsg" class="hidden text-green-400 font-bold animate-pulse mb-3 text-sm md:text-base">🎉 CHÚC MỪNG KỶ LỤC MỚI! 🎉</div>
+                    
+                    <div id="submitScoreForm" class="hidden mb-4 shrink-0">
+                        <input type="text" id="playerName" class="name-input mb-2" placeholder="Nhập tên của bạn" maxlength="12">
+                        <button id="submitNameBtn" class="btn text-white font-bold py-2 px-6 rounded-lg w-full text-sm">Ghi Danh Bảng Vàng</button>
+                        <p id="submitStatus" class="text-xs text-gray-400 mt-1"></p>
+                    </div>
+                    
+                    <div class="bg-gray-800 rounded-xl p-3 border border-gray-700 shadow-inner mt-auto mb-2 shrink-0">
+                        <h3 class="text-blue-400 font-bold mb-2 border-b border-gray-600 pb-1 text-xs uppercase flex items-center justify-center gap-2">
+                            <span class="live-indicator"></span> Top Toàn Cầu
+                        </h3>
+                        
+                        <div id="myCurrentRankBox" class="highlight-rank rounded mb-2 py-1.5 px-2 flex justify-between items-center hidden shadow-md">
+                            <span class="text-blue-100 flex items-center gap-1 text-xs">
+                                <span class="w-6 inline-block text-center font-extrabold text-yellow-300 drop-shadow" id="currentRankBadge">#?</span> 
+                                <span class="font-bold truncate w-24 text-left text-[11px] uppercase tracking-wider">Điểm của bạn</span>
+                            </span>
+                            <span class="text-yellow-300 font-black text-xs drop-shadow" id="currentRankScore">0</span>
+                        </div>
+
+                        <ul id="gameOverLeaderboardList" class="flex flex-col justify-start text-xs max-h-32 overflow-y-auto custom-scrollbar">
+                            <li class="text-gray-500 italic">Đang tải...</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="mt-2 pt-3 border-t border-gray-700/50 shrink-0">
+                    <button id="restartBtn" class="btn btn-red text-white font-bold py-3 px-6 rounded-full text-lg md:text-xl w-full uppercase tracking-wider shadow-lg">Chơi Lại</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        const screens = { container: document.getElementById('screenContainer'), start: document.getElementById('startScreen'), gameOver: document.getElementById('gameOverScreen'), hud: document.getElementById('hud') };
+        const texts = { score: document.getElementById('scoreText'), finalScore: document.getElementById('finalScore'), highScoreHUD: document.getElementById('highScoreTextHUD'), highScoreStart: document.getElementById('highScoreTextStart') };
+        const overlays = { damage: document.getElementById('damageOverlay'), lightning: document.getElementById('lightningOverlay'), freeze: document.getElementById('freezeOverlay') };
+        const livesContainer = document.getElementById('livesContainer');
+        const submitForm = document.getElementById('submitScoreForm');
+        const playerNameInput = document.getElementById('playerName');
+        const newRecordMsg = document.getElementById('newRecordMsg');
+        const bgMusic = document.getElementById('bgMusic');
+        const musicToggleBtn = document.getElementById('musicToggleBtn');
+        
+        let isMusicPlaying = true;
+        let audioCtx = null;
+
+        window.updateCurrentRankDisplay = function() {
+            const box = document.getElementById('myCurrentRankBox');
+            const badge = document.getElementById('currentRankBadge');
+            const scoreDisp = document.getElementById('currentRankScore');
+            
+            if (!box) return;
+            if (state !== 'GAMEOVER') {
+                box.classList.add('hidden');
+                return;
+            }
+            
+            box.classList.remove('hidden');
+            scoreDisp.innerText = score;
+
+            let rank = 1;
+            for (let i = 0; i < window.allGlobalScores.length; i++) {
+                if (score >= window.allGlobalScores[i].score) break;
+                rank++;
+            }
+            
+            let badgeText = rank === 1 ? '👑' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+            badge.innerText = badgeText;
+        };
+
+        function getAudioCtx() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            return audioCtx;
+        }
+
+        musicToggleBtn.addEventListener('click', () => {
+            isMusicPlaying = !isMusicPlaying;
+            if (isMusicPlaying) {
+                musicToggleBtn.innerText = '🔊';
+                if (state === 'PLAY') bgMusic.play().catch(e => console.log("Lỗi:", e));
+            } else {
+                musicToggleBtn.innerText = '🔇';
+                bgMusic.pause();
+            }
+        });
+        
+        function playSound(type) {
+            if (!isMusicPlaying) return;
+            try {
+                const actx = getAudioCtx();
+                const osc = actx.createOscillator();
+                const gainNode = actx.createGain();
+                
+                // Hiệu ứng Pitch shift khi có Slow-mo
+                let pitchMult = timeScale < 1 ? 0.6 : 1.0; 
+
+                osc.connect(gainNode);
+                gainNode.connect(actx.destination);
+                const now = actx.currentTime;
+                
+                if (type === 'BOMB') {
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(150 * pitchMult, now);
+                    osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.5);
+                    gainNode.gain.setValueAtTime(0.3, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                    osc.start(now); osc.stop(now + 0.5);
+                } else if (type === 'FRUIT') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(800 * pitchMult, now);
+                    osc.frequency.exponentialRampToValueAtTime(100 * pitchMult, now + 0.2);
+                    gainNode.gain.setValueAtTime(0.2, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                    osc.start(now); osc.stop(now + 0.2);
+                } else if (type === 'FREEZE') { // Âm thanh vỡ băng
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1200, now);
+                    osc.frequency.exponentialRampToValueAtTime(400, now + 0.4);
+                    gainNode.gain.setValueAtTime(0.4, now);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                    osc.start(now); osc.stop(now + 0.4);
+                } else if (type === 'GAMEOVER') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(300, now);
+                    osc.frequency.linearRampToValueAtTime(50, now + 1);
+                    gainNode.gain.setValueAtTime(0.3, now);
+                    gainNode.gain.linearRampToValueAtTime(0.01, now + 1);
+                    osc.start(now); osc.stop(now + 1);
+                }
+            } catch(e) { console.warn("Lỗi Audio:", e); }
+        }
+
+        let state = 'START';
+        let score = 0, lives = 3, frame = 0, shake = 0;
+        
+        // --- CÁC BIẾN CHO SLOW-MO ---
+        let timeScale = 1;
+        let slowMoTimer = 0;
+
+        let localHighScore = localStorage.getItem('bombNinjaHighScore') || 0;
+        texts.highScoreStart.innerText = localHighScore;
+        texts.highScoreHUD.innerText = localHighScore;
+
+        let targets = [], particles = [], lightnings = [], halves = [], slicePts = [];
+        let isSlicing = false;
+        const FRUITS = ['🍎', '🍉', '🍌', '🍓', '🍇', '🍍', '🥥', '🥝'];
+        const BOMB = '💣';
+        const FREEZE = '🧊';
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        const rnd = (min, max) => Math.random() * (max - min) + min;
+        const distSq = (p1, p2) => (p1.x - p2.x)**2 + (p1.y - p2.y)**2;
+        const distToSegmentSq = (p, v, w) => {
+            let l2 = distSq(v, w);
+            if (l2 === 0) return distSq(p, v);
+            let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            return distSq(p, { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) });
+        };
+
+        class Target {
+            constructor() {
+                this.r = Math.min(canvas.width, canvas.height) * 0.08;
+                this.x = rnd(this.r * 2, canvas.width - this.r * 2);
+                this.y = canvas.height + this.r;
+                this.vx = rnd(-1.5, 1.5); 
+                
+                let baseScale = Math.min(canvas.width, canvas.height) / 800;
+                baseScale = Math.max(0.6, Math.min(baseScale, 1.2)); 
+                
+                let diffFactor = 1 + (score / 300);
+                if (score >= 200) diffFactor += 0.3;
+                
+                this.baseScale = baseScale; 
+                this.vy = rnd(-15, -12) * baseScale * diffFactor;
+                
+                let bombChance = 0.60;
+                if (score >= 100) bombChance = 0.65;
+                if (score >= 200) bombChance = 0.75;
+                
+                // Xác định loại (BOMB, FRUIT, hoặc FREEZE)
+                let isFreeze = Math.random() < 0.04; // 4% cơ hội rơi khối băng
+                this.isBomb = !isFreeze && Math.random() < bombChance;
+                
+                if (isFreeze) {
+                    this.type = 'FREEZE';
+                    this.emoji = FREEZE;
+                } else if (this.isBomb) {
+                    this.type = 'BOMB';
+                    this.emoji = BOMB;
+                } else {
+                    this.type = 'FRUIT';
+                    this.emoji = FRUITS[Math.floor(Math.random() * FRUITS.length)];
+                }
+
+                this.rot = 0;
+                this.rotSpd = rnd(-0.05, 0.05);
+                this.dead = false;
+            }
+            update() {
+                // Áp dụng timeScale vào vật lý
+                this.x += this.vx * timeScale;
+                this.y += this.vy * timeScale;
+                this.vy += (0.22 * this.baseScale) * timeScale; 
+                this.rot += this.rotSpd * timeScale;
+            }
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rot);
+                ctx.font = `${this.r * 1.5}px Arial`;
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                
+                if(this.type === 'BOMB') {
+                    ctx.shadowColor = 'rgba(239, 68, 68, 0.8)'; ctx.shadowBlur = 15;
+                } else if (this.type === 'FREEZE') {
+                    ctx.shadowColor = 'rgba(125, 211, 252, 0.9)'; ctx.shadowBlur = 20; // Phát sáng xanh dương
+                } else {
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 5;
+                }
+                ctx.fillText(this.emoji, 0, 0);
+                ctx.restore();
+            }
+        }
+
+        class HalfFruit {
+            constructor(x, y, emoji, isLeft) {
+                this.x = x; this.y = y; this.emoji = emoji; this.isLeft = isLeft;
+                this.vx = isLeft ? rnd(-3, -1) : rnd(1, 3);
+                this.vy = rnd(-4, 0);
+                this.rot = 0; this.rotSpd = isLeft ? -0.05 : 0.05;
+                this.life = 1;
+            }
+            update() {
+                // Áp dụng timeScale
+                this.x += this.vx * timeScale; 
+                this.y += this.vy * timeScale; 
+                this.vy += 0.15 * timeScale;
+                this.rot += this.rotSpd * timeScale; 
+                this.life -= 0.015 * timeScale;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.translate(this.x, this.y); ctx.rotate(this.rot);
+                ctx.font = `50px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.beginPath();
+                if(this.isLeft) ctx.rect(-50, -50, 50, 100);
+                else ctx.rect(0, -50, 50, 100);
+                ctx.clip();
+                ctx.fillText(this.emoji, 0, 0);
+                ctx.restore();
+            }
+        }
+
+        class Particle {
+            constructor(x, y, colors, speedMult = 1, isLiquid = false) {
+                this.x = x; this.y = y;
+                let ang = rnd(0, Math.PI * 2);
+                let spd = rnd(2, 8) * speedMult;
+                this.vx = Math.cos(ang) * spd; this.vy = Math.sin(ang) * spd;
+                this.size = rnd(2, 6);
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+                this.life = 1; this.decay = rnd(0.02, 0.05); this.isLiquid = isLiquid;
+            }
+            update() {
+                this.x += this.vx * timeScale; 
+                this.y += this.vy * timeScale;
+                if(this.isLiquid) this.vy += 0.15 * timeScale;
+                this.life -= this.decay * timeScale; 
+                // Kích thước co lại chậm hơn nếu có timeScale
+                let shrinkFactor = 1 - (0.05 * timeScale);
+                this.size *= shrinkFactor;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                if(!this.isLiquid) { ctx.shadowColor = this.color; ctx.shadowBlur = 10; }
+                ctx.fill(); ctx.restore();
+            }
+        }
+
+        class LightningNode {
+            constructor(startX, startY, endX, endY) {
+                this.segments = []; this.life = 1;
+                this.generate(startX, startY, endX, endY);
+            }
+            generate(x1, y1, x2, y2) {
+                let dist = Math.sqrt((x2-x1)**2 + (y2-y1)**2);
+                if(dist < 20) { this.segments.push({x1, y1, x2, y2}); return; }
+                let midX = (x1 + x2) / 2 + rnd(-dist/4, dist/4);
+                let midY = (y1 + y2) / 2 + rnd(-dist/4, dist/4);
+                this.generate(x1, y1, midX, midY);
+                this.generate(midX, midY, x2, y2);
+            }
+            update() { 
+                // Tia sét cũng biến mất chậm hơn trong Slow-mo
+                this.life -= 0.08 * timeScale; 
+            }
+            draw() {
+                if(this.life <= 0) return;
+                ctx.save(); ctx.globalAlpha = this.life; ctx.beginPath();
+                this.segments.forEach(s => { ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); });
+                ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 3; ctx.shadowColor = '#fff'; ctx.shadowBlur = 10; ctx.stroke();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.shadowBlur = 0; ctx.stroke(); ctx.restore();
+            }
+        }
+
+        function spawn() {
+            // Tốc độ spawn không bị ảnh hưởng bởi timeScale (để màn hình vẫn đầy item)
+            let rate = Math.max(40, 90 - (score / 4)); 
+            if (score >= 100) rate = Math.max(30, 65 - ((score - 100) / 4));
+            if (score >= 200) rate = Math.max(15, 40 - ((score - 200) / 3));
+            
+            if (frame % Math.floor(rate) === 0) targets.push(new Target());
+        }
+
+        function createVFX(x, y, type, emoji = '') {
+            if (type === 'BOMB') {
+                playSound('BOMB');
+                const colors = ['#ef4444', '#f59e0b', '#fbbf24', '#ffffff'];
+                for (let i = 0; i < 40; i++) particles.push(new Particle(x, y, colors, 1.5));
+                for(let i=0; i<3; i++) lightnings.push(new LightningNode(x, y, x + rnd(-150, 150), y + rnd(-150, 150)));
+                shake = 15;
+                overlays.lightning.classList.remove('flash-lightning');
+                void overlays.lightning.offsetWidth;
+                overlays.lightning.classList.add('flash-lightning');
+            } else if (type === 'FRUIT') {
+                playSound('FRUIT');
+                const colors = ['#ec4899', '#8b5cf6', '#10b981', '#f43f5e'];
+                for (let i = 0; i < 20; i++) particles.push(new Particle(x, y, colors, 0.8, true));
+                halves.push(new HalfFruit(x, y, emoji, true));
+                halves.push(new HalfFruit(x, y, emoji, false));
+            } else if (type === 'FREEZE') {
+                playSound('FREEZE');
+                const colors = ['#e0f2fe', '#bae6fd', '#7dd3fc', '#ffffff'];
+                // Nổ ra nhiều hạt băng
+                for (let i = 0; i < 30; i++) particles.push(new Particle(x, y, colors, 1.2));
+            }
+        }
+
+        function takeDamage() {
+            lives--; updateHUD();
+            overlays.damage.classList.remove('flash-damage');
+            void overlays.damage.offsetWidth;
+            overlays.damage.classList.add('flash-damage');
+            if (lives <= 0) endGame();
+        }
+
+        function checkHit() {
+            if (slicePts.length < 2) return;
+            let p1 = slicePts[slicePts.length - 2];
+            let p2 = slicePts[slicePts.length - 1];
+
+            for (let i = targets.length - 1; i >= 0; i--) {
+                let t = targets[i];
+                if (distToSegmentSq({x: t.x, y: t.y}, p1, p2) < (t.r * t.r)) {
+                    t.dead = true;
+                    
+                    if (t.type === 'BOMB') {
+                        score += 10; texts.score.innerText = score;
+                        createVFX(t.x, t.y, 'BOMB');
+                    } else if (t.type === 'FREEZE') {
+                        score += 15; texts.score.innerText = score;
+                        createVFX(t.x, t.y, 'FREEZE');
+                        
+                        // KÍCH HOẠT SLOW-MO
+                        timeScale = 0.35; // Chậm 65%
+                        slowMoTimer = 180; // ~3 giây ở 60fps
+                        overlays.freeze.classList.add('active-freeze');
+                        
+                        // Làm giảm nhạc nền một chút để tạo cảm giác chìm
+                        if (isMusicPlaying) bgMusic.playbackRate = 0.7;
+                        
+                    } else { // FRUIT
+                        createVFX(t.x, t.y, 'FRUIT', t.emoji);
+                        takeDamage();
+                    }
+                }
+            }
+        }
+
+        function update() {
+            if (state !== 'PLAY') return;
+            frame++; spawn();
+            
+            // Xử lý đếm ngược Slow-mo
+            if (slowMoTimer > 0) {
+                slowMoTimer--;
+                if (slowMoTimer <= 0) {
+                    // Hết Slow-mo
+                    timeScale = 1;
+                    overlays.freeze.classList.remove('active-freeze');
+                    if (isMusicPlaying) bgMusic.playbackRate = 1.0;
+                }
+            }
+
+            for (let i = targets.length - 1; i >= 0; i--) {
+                let t = targets[i];
+                t.update();
+                if (t.y > canvas.height + t.r + 20) {
+                    // Bom rơi khỏi màn hình thì mất mạng
+                    if (t.type === 'BOMB' && !t.dead) takeDamage();
+                    t.dead = true;
+                }
+                if (t.dead) targets.splice(i, 1);
+            }
+
+            [particles, halves, lightnings].forEach(arr => {
+                for (let i = arr.length - 1; i >= 0; i--) {
+                    arr[i].update();
+                    if (arr[i].life <= 0) arr.splice(i, 1);
+                }
+            });
+
+            if (shake > 0) shake--;
+            
+            const now = Date.now();
+            slicePts = slicePts.filter(p => now - p.time < 150); 
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            if (shake > 0) ctx.translate(rnd(-12, 12), rnd(-12, 12));
+
+            targets.forEach(t => t.draw());
+            halves.forEach(h => h.draw());
+            particles.forEach(p => p.draw());
+            lightnings.forEach(l => l.draw());
+            ctx.restore();
+
+            // VẼ ĐƯỜNG CHÉM SẤM SÉT (ZICZAC)
+            if (slicePts.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(slicePts[0].x, slicePts[0].y);
+                
+                for (let i = 1; i < slicePts.length; i++) {
+                    let isLast = (i === slicePts.length - 1);
+                    // Chỉ thêm noise cho các điểm ở giữa, điểm đầu ngón tay giữ nguyên
+                    let noiseStr = isLast ? 0 : 15;
+                    let offsetX = (Math.random() - 0.5) * noiseStr; 
+                    let offsetY = (Math.random() - 0.5) * noiseStr;
+                    
+                    ctx.lineTo(slicePts[i].x + offsetX, slicePts[i].y + offsetY);
+                }
+                
+                ctx.lineCap = 'round'; ctx.lineJoin = 'miter'; 
+                
+                // Viền phát sáng xanh
+                ctx.lineWidth = 12; 
+                ctx.strokeStyle = 'rgba(59, 130, 246, 0.5)'; 
+                ctx.shadowColor = '#60a5fa'; 
+                ctx.shadowBlur = 20; 
+                ctx.stroke();
+                
+                // Lõi sấm sét trắng
+                ctx.lineWidth = 3; 
+                ctx.strokeStyle = '#ffffff'; 
+                ctx.shadowBlur = 0; 
+                ctx.stroke();
+            }
+        }
+
+        function loop() {
+            update(); draw(); requestAnimationFrame(loop);
+        }
+
+        // --- Inputs ---
+        function addPt(e) {
+            let x = e.touches ? e.touches[0].clientX : e.clientX;
+            let y = e.touches ? e.touches[0].clientY : e.clientY;
+            slicePts.push({x, y, time: Date.now()}); 
+        }
+        
+        function inputStart(e) {
+            if (state !== 'PLAY') return;
+            isSlicing = true; slicePts = []; addPt(e);
+            getAudioCtx();
+        }
+        function inputMove(e) {
+            if (!isSlicing || state !== 'PLAY') return;
+            e.preventDefault(); addPt(e); checkHit();
+        }
+        function inputEnd() { isSlicing = false; }
+
+        canvas.addEventListener('mousedown', inputStart);
+        canvas.addEventListener('mousemove', inputMove);
+        window.addEventListener('mouseup', inputEnd);
+        canvas.addEventListener('touchstart', inputStart, { passive: false });
+        canvas.addEventListener('touchmove', inputMove, { passive: false });
+        window.addEventListener('touchend', inputEnd);
+
+        // --- UI Flow ---
+        function updateHUD() {
+            livesContainer.innerHTML = '';
+            for(let i=0; i<3; i++) {
+                livesContainer.innerHTML += `<span class="text-3xl drop-shadow-md transform transition-transform ${i<lives ? 'scale-100' : 'scale-50 opacity-30'}">${i<lives ? '💖' : '🖤'}</span>`;
+            }
+        }
+
+        function startPlay() {
+            const actx = getAudioCtx();
+            if (actx.state === 'suspended') actx.resume();
+
+            bgMusic.volume = 0.4;
+            bgMusic.playbackRate = 1.0;
+            if (isMusicPlaying) {
+                bgMusic.currentTime = 0;
+                bgMusic.play().catch(e => console.log("Lỗi:", e));
+            }
+
+            state = 'PLAY'; score = 0; lives = 3; frame = 0;
+            timeScale = 1; slowMoTimer = 0;
+            overlays.freeze.classList.remove('active-freeze');
+            
+            targets = []; particles = []; halves = []; lightnings = []; slicePts = [];
+            
+            texts.score.innerText = '0'; updateHUD();
+            screens.container.classList.add('hidden');
+            screens.start.classList.add('hidden');
+            screens.gameOver.classList.add('hidden');
+            screens.hud.classList.remove('opacity-0');
+            document.getElementById('myCurrentRankBox').classList.add('hidden');
+            document.body.style.cursor = 'crosshair';
+            
+            submitForm.classList.add('hidden');
+            newRecordMsg.classList.add('hidden');
+            document.getElementById('submitStatus').innerText = '';
+        }
+
+        function endGame() {
+            playSound('GAMEOVER'); 
+            bgMusic.pause(); 
+            state = 'GAMEOVER'; document.body.style.cursor = 'default';
+            
+            timeScale = 1; slowMoTimer = 0; // Reset các hiệu ứng
+            overlays.freeze.classList.remove('active-freeze');
+
+            screens.hud.classList.add('opacity-0');
+            screens.container.classList.remove('hidden');
+            screens.gameOver.classList.remove('hidden');
+            
+            setTimeout(() => {
+                screens.gameOver.classList.remove('scale-95');
+                screens.gameOver.classList.add('scale-100');
+            }, 50);
+
+            texts.finalScore.innerText = score;
+            window.updateCurrentRankDisplay();
+
+            let isNewRecord = false;
+            if(score > localHighScore) {
+                localHighScore = score; localStorage.setItem('bombNinjaHighScore', localHighScore);
+                texts.highScoreHUD.innerText = localHighScore; texts.highScoreStart.innerText = localHighScore;
+                isNewRecord = true;
+            }
+
+            if(isNewRecord && score > 0) {
+                newRecordMsg.classList.remove('hidden');
+                submitForm.classList.remove('hidden');
+            }
+        }
+
+        document.getElementById('startBtn').addEventListener('click', startPlay);
+        document.getElementById('restartBtn').addEventListener('click', startPlay);
+        
+        document.getElementById('submitNameBtn').addEventListener('click', async () => {
+            const name = playerNameInput.value;
+            const btn = document.getElementById('submitNameBtn');
+            const status = document.getElementById('submitStatus');
+            
+            if(!name.trim()) {
+                status.innerText = "Vui lòng nhập tên hợp lệ!";
+                status.className = "text-xs text-red-400 mt-1"; return;
+            }
+            
+            btn.innerText = "Đang gửi..."; btn.disabled = true;
+            const success = await window.submitScore(name, score);
+            
+            if(success) {
+                submitForm.classList.add('hidden');
+                status.innerText = "Đã lưu tên vào Bảng Vàng!";
+                status.className = "text-sm text-green-400 font-bold mt-2";
+                status.style.display = 'block'; 
+                const parent = document.getElementById('submitScoreForm').parentNode;
+                parent.insertBefore(status, document.getElementById('submitScoreForm').nextSibling);
+            } else {
+                btn.innerText = "Ghi Danh Bảng Vàng"; btn.disabled = false;
+                status.innerText = "Lỗi mạng, vui lòng thử lại!";
+                status.className = "text-xs text-red-400 mt-1";
+            }
+        });
+
+        requestAnimationFrame(loop);
+        updateHUD();
+
+    </script>
+</body>
+</html>
